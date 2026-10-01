@@ -64,6 +64,16 @@ resource "aws_ecs_task_definition" "frontend" {
       appProtocol   = "http"
     }]
 
+    # Same check ECS-side as the ALB does; nginx:alpine ships busybox wget.
+    # 127.0.0.1, not localhost: nginx only listens on IPv4 and "localhost" may resolve to ::1 first
+    healthCheck = {
+      command     = ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval    = 15
+      timeout     = 5
+      retries     = 3
+      startPeriod = 10
+    }
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {

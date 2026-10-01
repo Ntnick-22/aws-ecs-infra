@@ -58,6 +58,18 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "POSTGRES_PASSWORD", valueFrom = "${local.db_secret_arn}:password::" },
     ]
 
+    # The backend has no ALB, so without this ECS only knows "the process didn't crash".
+    # Failing it marks the task UNHEALTHY -> replaced -> circuit breaker rolls back a bad deploy.
+    # Liveness (/api/health), not readiness: an RDS blip must not make ECS kill healthy tasks.
+    # python:3.12-slim has no curl, so use Python itself.
+    healthCheck = {
+      command     = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)\" || exit 1"]
+      interval    = 15
+      timeout     = 5
+      retries     = 3
+      startPeriod = 20
+    }
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {
