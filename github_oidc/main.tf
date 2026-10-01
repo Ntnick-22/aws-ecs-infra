@@ -29,8 +29,10 @@ resource "aws_iam_role" "github_actions_infra" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        # Any branch / PR of the infra repo may plan; applying is gated by the workflows
-        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.infra_repo}:*" }
+        # Any branch / PR of the infra repo may plan; applying is gated by the workflows.
+        # Newer repos use GitHub's immutable subject (owner and repo IDs), so a deleted or
+        # renamed repo name can't be re-created by someone else to get into this account.
+        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}@${var.github_owner_id}/${var.infra_repo}@${var.infra_repo_id}:*" }
       }
     }]
   })
