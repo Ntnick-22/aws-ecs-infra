@@ -5,7 +5,7 @@ locals {
 
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.name}-backend"
-  retention_in_days = 7
+  retention_in_days = 14
 }
 
 # AmazonECSTaskExecutionRolePolicy (layer 01) covers ECR + logs, not Secrets Manager
