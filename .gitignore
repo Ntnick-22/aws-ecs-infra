@@ -1,0 +1,15 @@
+# Provider binaries and module cache (re-created by terraform init)
+.terraform/
+
+# State lives in S3 — never commit local copies
+*.tfstate
+*.tfstate.*
+
+# Plan files and CI artifacts
+tfplan
+*.tfplan
+plan.txt
+plan_output.txt
+crash.log
+
+# Keep .terraform.lock.hcl: it pins provider versions

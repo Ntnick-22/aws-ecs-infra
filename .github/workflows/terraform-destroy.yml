@@ -1,0 +1,55 @@
+name: Terraform Destroy (nightly teardown)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to tear down 03_app, 02_data, 01_ecs and turn the NAT off'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-1
+  AWS_ROLE_ARN: arn:aws:iam::772297676546:role/myecs-github-infra
+  TF_VERSION: 1.15.8
+
+jobs:
+  destroy:
+    name: Teardown
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'destroy'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # Reverse dependency order. ecr/ and github_oidc/ are never destroyed.
+      - name: Destroy 03_app, 02_data, 01_ecs
+        run: |
+          for layer in 03_app 02_data 01_ecs; do
+            echo "::group::$layer"
+            terraform -chdir="$layer" init -input=false
+            terraform -chdir="$layer" destroy -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
+
+      # The VPC, subnets and SGs are free; only the NAT gateway + Elastic IP cost money
+      - name: Turn NAT off in 00_networking
+        run: |
+          terraform -chdir=00_networking init -input=false
+          terraform -chdir=00_networking apply -auto-approve -input=false -no-color -var="enable_nat=false"

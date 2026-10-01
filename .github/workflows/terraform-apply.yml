@@ -1,0 +1,74 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      layer:
+        description: "Layer to apply (all = bring the whole environment up in order)"
+        type: choice
+        default: all
+        options:
+          - all
+          - ecr
+          - github_oidc
+          - 00_networking
+          - 01_ecs
+          - 02_data
+          - 03_app
+
+permissions:
+  id-token: write
+  contents: read
+
+# One Terraform run at a time across apply and destroy
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-1
+  AWS_ROLE_ARN: arn:aws:iam::772297676546:role/myecs-github-infra
+  TF_VERSION: 1.15.8
+  # github_oidc is excluded from "all": it is the role this workflow runs as
+  ENV_LAYERS: ecr 00_networking 01_ecs 02_data 03_app
+
+jobs:
+  apply:
+    name: Apply ${{ inputs.layer }}
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform apply
+        run: |
+          if [ "${{ inputs.layer }}" = "all" ]; then LAYERS="$ENV_LAYERS"; else LAYERS="${{ inputs.layer }}"; fi
+          for layer in $LAYERS; do
+            echo "::group::$layer"
+            terraform -chdir="$layer" init -input=false
+            terraform -chdir="$layer" apply -auto-approve -input=false -no-color
+            echo "::endgroup::"
+          done
+
+      - name: Smoke test
+        if: inputs.layer == 'all' || inputs.layer == '03_app'
+        run: |
+          # New tasks need a few minutes to pass ALB health checks
+          for i in $(seq 1 30); do
+            BODY=$(curl -s -m 5 https://myecs.nt-nick.link/api/health || true)
+            echo "attempt $i: $BODY"
+            echo "$BODY" | grep -q '"database":"connected"' && exit 0
+            sleep 20
+          done
+          echo "::error::App did not become healthy within 10 minutes"
+          exit 1

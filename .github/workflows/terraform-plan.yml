@@ -1,0 +1,117 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write # OIDC token for AWS
+  contents: read
+  pull-requests: write # post the plan as a PR comment
+
+env:
+  AWS_REGION: eu-west-1
+  AWS_ROLE_ARN: arn:aws:iam::772297676546:role/myecs-github-infra
+  TF_VERSION: 1.15.8
+  # Every Terraform layer, in dependency order
+  ALL_LAYERS: ecr github_oidc 00_networking 01_ecs 02_data 03_app
+
+jobs:
+  changes:
+    name: Detect changed layers
+    runs-on: ubuntu-latest
+    outputs:
+      layers: ${{ steps.diff.outputs.layers }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List layers touched by this PR
+        id: diff
+        run: |
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" | cut -d/ -f1 | sort -u)
+          LAYERS=()
+          for layer in $ALL_LAYERS; do
+            if echo "$CHANGED" | grep -qx "$layer"; then LAYERS+=("\"$layer\""); fi
+          done
+          JSON="[$(IFS=,; echo "${LAYERS[*]}")]"
+          echo "Changed layers: $JSON"
+          echo "layers=$JSON" >> "$GITHUB_OUTPUT"
+
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: terraform fmt -check -recursive -diff
+
+  plan:
+    name: Plan ${{ matrix.layer }}
+    needs: changes
+    if: needs.changes.outputs.layers != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: ${{ fromJSON(needs.changes.outputs.layers) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.layer }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - run: terraform init -input=false
+
+      - run: terraform validate -no-color
+
+      # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes present.
+      # The shell runs with -e, so capture the code instead of letting "2" fail the step.
+      - name: terraform plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -no-color -input=false > plan.txt 2>&1
+          CODE=$?
+          set -e
+          cat plan.txt
+          echo "exitcode=$CODE" >> "$GITHUB_OUTPUT"
+          [ "$CODE" -ne 1 ]
+
+      - name: Comment plan on PR
+        if: always() && steps.plan.outputs.exitcode != ''
+        uses: actions/github-script@v7
+        env:
+          LAYER: ${{ matrix.layer }}
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+        with:
+          script: |
+            const fs = require('fs')
+            const { LAYER, EXITCODE } = process.env
+            const plan = fs.readFileSync(`${LAYER}/plan.txt`, 'utf8')
+            const summary = plan.match(/(Plan: .*|No changes\..*)/)?.[0] ?? 'see details'
+            const status = { '0': '✅ No changes', '1': '❌ Plan failed', '2': '⚠️ Changes' }[EXITCODE]
+            const marker = `<!-- tf-plan:${LAYER} -->`
+            const body = `${marker}\n### ${status} — \`${LAYER}\`\n**${summary}**\n\n<details><summary>Full plan</summary>\n\n\`\`\`\n${plan.slice(-60000)}\n\`\`\`\n</details>`
+
+            // Update this layer's previous comment instead of adding a new one on every push
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number })
+            const existing = comments.find(c => c.body.startsWith(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body })
+            }
