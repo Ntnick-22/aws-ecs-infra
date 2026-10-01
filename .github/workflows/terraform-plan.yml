@@ -29,8 +29,12 @@ jobs:
 
       - name: List layers touched by this PR
         id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" | cut -d/ -f1 | sort -u)
+          set -o pipefail # a failing git diff must fail the step, not silently produce "no layers"
+          CHANGED=$(git diff --name-only "$BASE_SHA...$HEAD_SHA" | cut -d/ -f1 | sort -u)
           LAYERS=()
           for layer in $ALL_LAYERS; do
             if echo "$CHANGED" | grep -qx "$layer"; then LAYERS+=("\"$layer\""); fi
