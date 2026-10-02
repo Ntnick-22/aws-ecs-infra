@@ -38,7 +38,8 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      # Reverse dependency order. ecr/ and github_oidc/ are never destroyed.
+      # Reverse dependency order. ecr/, github_oidc/ and 04_observability/ are never destroyed:
+      # the alarms see no data overnight and stay quiet, and the SNS email stays confirmed.
       - name: Destroy 03_app, 02_data, 01_ecs
         run: |
           for layer in 03_app 02_data 01_ecs; do
