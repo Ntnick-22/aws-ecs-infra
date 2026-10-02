@@ -71,10 +71,10 @@ resource "aws_cloudwatch_dashboard" "main" {
           region = var.region
           stat   = "Average"
           period = 60
-          metrics = flatten([for svc in local.service_names : [
-            ["ECS/ContainerInsights", "RunningTaskCount", "ClusterName", local.cluster, "ServiceName", svc, { label = "${svc} running" }],
-            [".", "DesiredTaskCount", ".", ".", ".", ".", { label = "${svc} desired" }],
-          ]])
+          # One row per (service, metric). Not flatten(): it would also flatten each row into loose strings.
+          metrics = [for pair in setproduct(local.service_names, ["RunningTaskCount", "DesiredTaskCount"]) :
+            ["ECS/ContainerInsights", pair[1], "ClusterName", local.cluster, "ServiceName", pair[0], { label = "${pair[0]} ${pair[1] == "RunningTaskCount" ? "running" : "desired"}" }]
+          ]
         }
       },
       {
