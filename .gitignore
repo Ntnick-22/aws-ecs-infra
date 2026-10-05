@@ -13,3 +13,4 @@ plan_output.txt
 crash.log
 
 # Keep .terraform.lock.hcl: it pins provider versions
+notes/

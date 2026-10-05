@@ -89,8 +89,9 @@ resource "aws_ecs_service" "frontend" {
   name            = "${var.name}-frontend"
   cluster         = data.terraform_remote_state.ecs.outputs.cluster_id
   task_definition = aws_ecs_task_definition.frontend.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+  # 2 tasks: ECS spreads them across the 2 AZs, so losing one task (or one AZ) leaves the ALB a healthy target
+  desired_count = 2
+  launch_type   = "FARGATE"
 
   network_configuration {
     subnets          = data.terraform_remote_state.networking.outputs.private_app_subnet_ids
