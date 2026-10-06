@@ -35,6 +35,12 @@ resource "aws_db_instance" "main" {
   deletion_protection     = false
   apply_immediately       = true
 
+  # The class is chosen at creation (possibly a fallback). Later applies must not try to
+  # resize it back to the preferred class: that would hit the same capacity shortage.
+  lifecycle {
+    ignore_changes = [instance_class]
+  }
+
   tags = {
     Name = "${var.name}-db"
   }

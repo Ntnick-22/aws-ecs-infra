@@ -32,6 +32,8 @@ env:
   TF_VERSION: 1.15.8
   # github_oidc is excluded from "all": it is the role this workflow runs as
   ENV_LAYERS: ecr 00_networking 01_ecs 02_data 03_app 04_observability
+  # RDS classes to try in order when AWS has no capacity for the first one (both ~$0.02/h)
+  DB_INSTANCE_CLASSES: db.t4g.micro db.t3.micro
   # Kept out of the repo (public): only 04_observability uses it
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
 
@@ -55,11 +57,27 @@ jobs:
 
       - name: terraform apply
         run: |
+          set -o pipefail
           if [ "${{ inputs.layer }}" = "all" ]; then LAYERS="$ENV_LAYERS"; else LAYERS="${{ inputs.layer }}"; fi
           for layer in $LAYERS; do
             echo "::group::$layer"
             terraform -chdir="$layer" init -input=false
-            terraform -chdir="$layer" apply -auto-approve -input=false -no-color
+            if [ "$layer" = "02_data" ]; then
+              # Capacity fallback: try each class; move on ONLY for "no capacity" errors, fail fast on anything else
+              applied=false
+              for class in $DB_INSTANCE_CLASSES; do
+                echo "Trying RDS instance class $class"
+                if terraform -chdir="$layer" apply -auto-approve -input=false -no-color -var "instance_class=$class" 2>&1 | tee apply.log; then
+                  applied=true
+                  break
+                fi
+                grep -qiE 'InsufficientDBInstanceCapacity|sufficient capacity' apply.log || break
+                echo "::warning::No RDS capacity for $class, trying the next class"
+              done
+              [ "$applied" = true ] || exit 1
+            else
+              terraform -chdir="$layer" apply -auto-approve -input=false -no-color
+            fi
             echo "::endgroup::"
           done
 
