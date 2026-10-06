@@ -20,6 +20,7 @@ variable "db_username" {
 }
 
 variable "instance_class" {
-  type    = string
-  default = "db.t4g.micro"
+  type        = string
+  description = "Preferred class. CI overrides it with a fallback (DB_INSTANCE_CLASSES) when AWS has no capacity"
+  default     = "db.t4g.micro"
 }
