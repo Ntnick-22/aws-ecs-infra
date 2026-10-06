@@ -108,9 +108,20 @@ resource "aws_ecs_service" "backend" {
     }
   }
 
+  # Catches deploys whose tasks crash or fail the health check
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  # Catches deploys that start fine but break under real traffic: if one of these alarms goes to
+  # ALARM during the deployment (or its bake time), ECS rolls back to the last COMPLETED deployment.
+  # Only service-specific alarms: a noisy one (e.g. CPU) would roll back good deploys.
+  # Referenced by name: they live in 04_observability, which is never destroyed.
+  alarms {
+    enable      = true
+    rollback    = true
+    alarm_names = ["${var.name}-backend-db-unavailable", "${var.name}-app-5xx"]
   }
 
   # CI owns deployments (new task definition revisions); Terraform only creates the service
