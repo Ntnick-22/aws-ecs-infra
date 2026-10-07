@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0" # 6.x needed for deployment_configuration.bake_time_in_minutes
     }
   }
   backend "s3" {
