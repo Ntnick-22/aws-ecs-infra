@@ -124,6 +124,15 @@ resource "aws_ecs_service" "backend" {
     alarm_names = ["${var.name}-backend-db-unavailable", "${var.name}-app-5xx"]
   }
 
+  # How long ECS keeps watching those alarms after the old tasks are gone. The default (<5 min,
+  # computed by ECS) is about as long as app-5xx needs to fire (~4 min: 2 of 3 one-minute periods
+  # + CloudWatch delay), so in drill E (2026-10-07) the alarm went red 9 s after monitoring ended
+  # and the bad deploy was marked SUCCESSFUL. 10 min gives the alarm room; deploys take ~13 min.
+  deployment_configuration {
+    strategy             = "ROLLING"
+    bake_time_in_minutes = 10
+  }
+
   # CI owns deployments (new task definition revisions); Terraform only creates the service
   lifecycle {
     ignore_changes = [task_definition]
