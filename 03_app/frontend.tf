@@ -116,9 +116,10 @@ resource "aws_ecs_service" "frontend" {
     rollback = true
   }
 
-  # CI owns deployments (new task definition revisions); Terraform only creates the service
+  # CI owns deployments (new task definition revisions) and autoscaling owns the task count
+  # (autoscaling.tf); Terraform only creates the service. desired_count is just the starting value.
   lifecycle {
-    ignore_changes = [task_definition]
+    ignore_changes = [task_definition, desired_count]
   }
 
   # nginx resolves "backend" at startup, so the backend must exist in the namespace first
