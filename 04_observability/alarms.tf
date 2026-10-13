@@ -73,50 +73,11 @@ resource "aws_cloudwatch_metric_alarm" "slow_responses" {
 
 # ---------- ECS: per service ----------
 
-# Container Insights metrics. Fires when ECS can't keep the desired number of tasks running
-# (crash loops, failing health checks, can't pull the image, out of capacity).
-resource "aws_cloudwatch_metric_alarm" "tasks_below_desired" {
-  for_each = var.services
-
-  alarm_name          = "${var.name}-${each.key}-tasks-below-desired"
-  alarm_description   = "${each.key}: fewer tasks running than desired for 5 minutes"
-  evaluation_periods  = 5
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = local.alarm_topic
-  ok_actions          = local.alarm_topic
-
-  metric_query {
-    id          = "missing"
-    expression  = "desired - running"
-    label       = "Tasks missing"
-    return_data = true
-  }
-
-  metric_query {
-    id = "desired"
-    metric {
-      namespace   = "ECS/ContainerInsights"
-      metric_name = "DesiredTaskCount"
-      dimensions  = { ClusterName = local.cluster, ServiceName = "${var.name}-${each.key}" }
-      stat        = "Average"
-      period      = 60
-    }
-  }
-
-  metric_query {
-    id = "running"
-    metric {
-      namespace   = "ECS/ContainerInsights"
-      metric_name = "RunningTaskCount"
-      dimensions  = { ClusterName = local.cluster, ServiceName = "${var.name}-${each.key}" }
-      stat        = "Average"
-      period      = 60
-    }
-  }
-}
-
+# Kept to 10 alarms in total (the free tier). Dropped on 2026-10-13:
+# - tasks-below-desired: needed Container Insights (now off). Missing tasks still show up as
+#   frontend-unhealthy-targets, or as 5xx through nginx when the backend is down.
+# - memory-high: an out-of-memory task is killed and replaced, which the 5xx alarms catch;
+#   memory stays on the dashboard.
 resource "aws_cloudwatch_metric_alarm" "service_cpu" {
   for_each = var.services
 
@@ -124,24 +85,6 @@ resource "aws_cloudwatch_metric_alarm" "service_cpu" {
   alarm_description   = "${each.key}: CPU above 80% for 10 minutes"
   namespace           = "AWS/ECS"
   metric_name         = "CPUUtilization"
-  dimensions          = { ClusterName = local.cluster, ServiceName = "${var.name}-${each.key}" }
-  statistic           = "Average"
-  period              = 300
-  evaluation_periods  = 2
-  threshold           = 80
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = local.alarm_topic
-  ok_actions          = local.alarm_topic
-}
-
-resource "aws_cloudwatch_metric_alarm" "service_memory" {
-  for_each = var.services
-
-  alarm_name          = "${var.name}-${each.key}-memory-high"
-  alarm_description   = "${each.key}: memory above 80% for 10 minutes"
-  namespace           = "AWS/ECS"
-  metric_name         = "MemoryUtilization"
   dimensions          = { ClusterName = local.cluster, ServiceName = "${var.name}-${each.key}" }
   statistic           = "Average"
   period              = 300
