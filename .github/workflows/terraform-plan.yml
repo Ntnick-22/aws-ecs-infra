@@ -105,10 +105,25 @@ jobs:
 
       - run: terraform validate -no-color
 
+      # 04_observability looks up the live ALB and target group (data sources), so its plan can
+      # only work while the environment is up. When it's down (nightly destroy), skip the plan
+      # instead of failing the PR; validate above still checks the code.
+      - name: Check the environment is up (04_observability only)
+        id: env
+        if: matrix.layer == '04_observability'
+        run: |
+          if aws elbv2 describe-load-balancers --names myecs-alb > /dev/null 2>&1; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Environment is down (no myecs-alb): 04_observability plan skipped. Re-run this job after Apply all to see its plan."
+            echo "up=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes present.
       # The shell runs with -e, so capture the code instead of letting "2" fail the step.
       - name: terraform plan
         id: plan
+        if: steps.env.outputs.up != 'false'
         run: |
           set +e
           terraform plan -detailed-exitcode -no-color -input=false > plan.txt 2>&1
