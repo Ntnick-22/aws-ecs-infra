@@ -63,22 +63,9 @@ resource "aws_cloudwatch_dashboard" "main" {
         }
       },
 
-      # ---- Row 2: ECS services ----
+      # ---- Row 2: ECS services (AWS/ECS only: Container Insights is off to stay in the free tier) ----
       {
-        type = "metric", x = 0, y = 8, width = local.widget.width, height = local.widget.height
-        properties = {
-          title  = "Running vs desired tasks"
-          region = var.region
-          stat   = "Average"
-          period = 60
-          # One row per (service, metric). Not flatten(): it would also flatten each row into loose strings.
-          metrics = [for pair in setproduct(local.service_names, ["RunningTaskCount", "DesiredTaskCount"]) :
-            ["ECS/ContainerInsights", pair[1], "ClusterName", local.cluster, "ServiceName", pair[0], { label = "${pair[0]} ${pair[1] == "RunningTaskCount" ? "running" : "desired"}" }]
-          ]
-        }
-      },
-      {
-        type = "metric", x = 8, y = 8, width = local.widget.width, height = local.widget.height
+        type = "metric", x = 0, y = 8, width = 12, height = local.widget.height
         properties = {
           title   = "Service CPU %"
           region  = var.region
@@ -89,7 +76,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         }
       },
       {
-        type = "metric", x = 16, y = 8, width = local.widget.width, height = local.widget.height
+        type = "metric", x = 12, y = 8, width = 12, height = local.widget.height
         properties = {
           title   = "Service memory %"
           region  = var.region
@@ -154,9 +141,7 @@ resource "aws_cloudwatch_dashboard" "main" {
               aws_cloudwatch_metric_alarm.rds_storage.arn,
               aws_cloudwatch_metric_alarm.rds_connections.arn,
             ],
-            [for a in aws_cloudwatch_metric_alarm.tasks_below_desired : a.arn],
             [for a in aws_cloudwatch_metric_alarm.service_cpu : a.arn],
-            [for a in aws_cloudwatch_metric_alarm.service_memory : a.arn],
           )
         }
       },

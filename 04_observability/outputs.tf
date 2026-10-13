@@ -7,5 +7,5 @@ output "alerts_topic_arn" {
 }
 
 output "alarm_count" {
-  value = 8 + length(aws_cloudwatch_metric_alarm.tasks_below_desired) + length(aws_cloudwatch_metric_alarm.service_cpu) + length(aws_cloudwatch_metric_alarm.service_memory)
+  value = 8 + length(aws_cloudwatch_metric_alarm.service_cpu)
 }

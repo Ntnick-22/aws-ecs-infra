@@ -1,9 +1,11 @@
 resource "aws_ecs_cluster" "main" {
   name = var.cluster_name
 
+  # Off: Container Insights publishes ~100 custom metrics per cluster, far past the 10 free ones.
+  # CPU and memory per service still come free from AWS/ECS.
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
 }
 
