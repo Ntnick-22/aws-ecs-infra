@@ -17,6 +17,8 @@ env:
   ALL_LAYERS: ecr github_oidc 00_networking 01_ecs 02_data 03_app 04_observability
   # Kept out of the repo (public): only 04_observability uses it
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+  # Pinned by version AND digest: a re-pushed or hijacked tag can't swap in a different scanner
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
 
 jobs:
   changes:
@@ -55,6 +57,25 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
       - run: terraform fmt -check -recursive -diff
 
+  # Static scan of every layer (no AWS access needed, so it runs on every PR, not only changed
+  # layers). Fails on HIGH/CRITICAL; MEDIUM/LOW are printed but don't block. Accepted findings
+  # carry an inline "#trivy:ignore:<ID> <reason>" comment next to the resource.
+  iac-scan:
+    name: Trivy IaC scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report all findings (non-blocking)
+        run: |
+          docker run --rm -v "$PWD":/src "$TRIVY_IMAGE" \
+            config --skip-dirs "**/.terraform" --quiet /src
+
+      - name: Fail on HIGH/CRITICAL
+        run: |
+          docker run --rm -v "$PWD":/src "$TRIVY_IMAGE" \
+            config --skip-dirs "**/.terraform" --severity HIGH,CRITICAL --exit-code 1 --quiet /src
+
   plan:
     name: Plan ${{ matrix.layer }}
     needs: changes
@@ -84,10 +105,25 @@ jobs:
 
       - run: terraform validate -no-color
 
+      # 04_observability looks up the live ALB and target group (data sources), so its plan can
+      # only work while the environment is up. When it's down (nightly destroy), skip the plan
+      # instead of failing the PR; validate above still checks the code.
+      - name: Check the environment is up (04_observability only)
+        id: env
+        if: matrix.layer == '04_observability'
+        run: |
+          if aws elbv2 describe-load-balancers --names myecs-alb > /dev/null 2>&1; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Environment is down (no myecs-alb): 04_observability plan skipped. Re-run this job after Apply all to see its plan."
+            echo "up=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes present.
       # The shell runs with -e, so capture the code instead of letting "2" fail the step.
       - name: terraform plan
         id: plan
+        if: steps.env.outputs.up != 'false'
         run: |
           set +e
           terraform plan -detailed-exitcode -no-color -input=false > plan.txt 2>&1

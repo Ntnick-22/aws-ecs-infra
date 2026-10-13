@@ -21,11 +21,13 @@ resource "aws_internet_gateway" "igw" {
 }
 
 resource "aws_subnet" "public" {
-  count                   = length(var.public_subnets)
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnets[count.index]
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
+  count             = length(var.public_subnets)
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = var.public_subnets[count.index]
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+  # Only the ALB and the NAT gateway live here: the ALB gets its public IPs from AWS and the
+  # NAT uses its Elastic IP, so nothing needs a public IP handed out automatically
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "${var.vpc_name}-public-${count.index + 1}"
