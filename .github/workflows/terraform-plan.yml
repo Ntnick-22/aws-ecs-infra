@@ -69,7 +69,7 @@ jobs:
       - name: Report all findings (non-blocking)
         run: |
           docker run --rm -v "$PWD":/src "$TRIVY_IMAGE" \
-            config --skip-dirs "**/.terraform" --no-progress /src
+            config --skip-dirs "**/.terraform" --quiet /src
 
       - name: Fail on HIGH/CRITICAL
         run: |
