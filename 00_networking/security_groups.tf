@@ -1,3 +1,11 @@
+# Egress is limited to what each tier actually talks to. Destinations are subnet CIDRs rather than
+# security group IDs: SG references in both directions (ALB -> frontend egress, frontend <- ALB
+# ingress) would make a dependency cycle. The ingress side still uses SG references, and traffic
+# needs both sides to allow it.
+#
+# 443 to the internet (via the NAT) stays open for ECR image pulls, CloudWatch Logs and the ECS
+# agent. Closing it needs VPC interface endpoints (~$7-8/month each per AZ, ~$40+/month here).
+
 resource "aws_security_group" "alb" {
   name        = "${var.vpc_name}-alb-sg"
   description = "Allow HTTP and HTTPS from internet to ALB"
@@ -20,39 +28,15 @@ resource "aws_security_group" "alb" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "To frontend tasks (requests and health checks)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = var.private_app_subnets
   }
 
   tags = {
     Name = "${var.vpc_name}-alb-sg"
-  }
-}
-
-resource "aws_security_group" "ecs_tasks" {
-  name        = "${var.vpc_name}-ecs-tasks-sg"
-  description = "Allow traffic from ALB to ECS tasks only"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "Allow from ALB"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.vpc_name}-ecs-tasks-sg"
   }
 }
 
@@ -70,9 +54,19 @@ resource "aws_security_group" "frontend" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "To backend tasks (nginx proxies /api via Service Connect)"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = var.private_app_subnets
+  }
+
+  #trivy:ignore:AWS-0104 Accepted: HTTPS to AWS APIs via the NAT; VPC endpoints would cost ~$40+/month
+  egress {
+    description = "HTTPS to AWS APIs (ECR pulls, CloudWatch Logs, ECS agent)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -95,9 +89,19 @@ resource "aws_security_group" "backend" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "To RDS PostgreSQL"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = var.private_data_subnets
+  }
+
+  #trivy:ignore:AWS-0104 Accepted: HTTPS to AWS APIs via the NAT; VPC endpoints would cost ~$40+/month
+  egress {
+    description = "HTTPS to AWS APIs (ECR pulls, CloudWatch Logs, ECS agent)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -123,4 +127,4 @@ resource "aws_security_group" "rds" {
   tags = {
     Name = "${var.vpc_name}-rds-sg"
   }
-} 
+}

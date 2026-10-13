@@ -17,12 +17,16 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
   }
 }
 
+#trivy:ignore:AWS-0053 Accepted: public website, the ALB has to be internet-facing
 resource "aws_lb" "main" {
   name               = "${var.cluster_name}-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [data.terraform_remote_state.networking.outputs.alb_sg_id]
   subnets            = data.terraform_remote_state.networking.outputs.public_subnet_ids
+
+  # Malformed headers are dropped at the ALB instead of reaching nginx (request smuggling)
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_listener" "http" {
